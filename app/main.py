@@ -1,3 +1,4 @@
+import json
 import os
 import threading
 import time
@@ -124,33 +125,42 @@ def send_requests_batch(task_id, batch, threadnum, userid, audit_id, collection)
     else:
         key = API_KEY
         isUsingStackKey = False
-
+    categories = ['performance', 'accessibility', 'best-practices', 'seo']
+    strategy=['desktop', 'mobile']
     for url in batch:
         retry_count = 0
-        while retry_count < MAX_RETRIES:
-            try:
-                print(f"the value of key in thread {threadnum} is {key}. an stack left {len(global_stack)}")
-                params = {
-                    "url": url,
-                    "key": key,
-                }
-                response = requests.get(API_ENDPOINT, params=params)
-                if response.status_code == 200:
-                    result = response.json()
-                    print(
-                        f"Task {threadnum} - URL: {url} - PageSpeed Score: {result['lighthouseResult']['categories']['performance']['score']} userid={userid} &&& retrycount={retry_count}")
-                    save_pagespeed_data(result, url, userid, audit_id, collection)
-                    break  # Break out of the retry loop if successful
-                elif response.status_code in [403, 429]:
-                    print(f"Task {threadnum} - URL: {url} - Retrying after {RETRY_DELAY} seconds due to status code: {response.status_code} &&& retrycount={retry_count}")
-                    time.sleep(RETRY_DELAY)
-                    retry_count += 1
-                else:
-                    print(f"Task {threadnum} - URL: {url} - Request failed with status code: {response.status_code}")
-                    break  # Break out of the retry loop for non-retryable status codes
-            except Exception as e:
-                print(f"Error saving data from iteration: {str(e)}")
-                break  # Break out of the retry loop for other exceptions
+        for strat in strategy:
+            while retry_count < MAX_RETRIES:
+                try:
+                    print(f"the value of key in thread {threadnum} is {key}. an stack left {len(global_stack)}")
+                    params = {
+                        "url": url,
+                        "key": key,
+                        "category": categories,
+                        "strategy": strat.upper()
+                    }
+                    
+                    response = requests.get(API_ENDPOINT, params=params)
+                    if response.status_code == 200:
+                        result = response.json()
+                        print(
+                            f"Task {threadnum} - URL: {url} - PageSpeed Score: {result['lighthouseResult']['categories']['performance']['score']} userid={userid} &&& retrycount={retry_count} &&& strategy={strat}")
+                        # with open("log.json", "a", encoding="utf-8") as json_file:
+                        #     json.dump(result, json_file, ensure_ascii=False, indent=2)
+                                
+                                    
+                        save_pagespeed_data(result, url, userid, audit_id, collection)
+                        break  # Break out of the retry loop if successful
+                    elif response.status_code in [403, 429]:
+                        print(f"Task {threadnum} - URL: {url} - Retrying after {RETRY_DELAY} seconds due to status code: {response.status_code} &&& retrycount={retry_count} &&& strategy={strat}")
+                        time.sleep(RETRY_DELAY)
+                        retry_count += 1
+                    else:
+                        print(f"Task {threadnum} - URL: {url} - Request failed with status code: {response.status_code}")
+                        break  # Break out of the retry loop for non-retryable status codes
+                except Exception as e:
+                    print(f"Error saving data from iteration: {str(e)}")
+                    break  # Break out of the retry loop for other exceptions
 
     if isUsingStackKey:
         push_to_global_stack(key)
