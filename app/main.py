@@ -9,10 +9,53 @@ from concurrent.futures import ThreadPoolExecutor
 import pymongo
 import uuid
 from dotenv import load_dotenv
-from fastapi import FastAPI
-
+from fastapi import FastAPI,Request
+import logging
+from logging.handlers import RotatingFileHandler
+import sys
+from functools import wraps
 app = FastAPI()
 
+# Configure logging
+log_folder = "logs"
+os.makedirs(log_folder, exist_ok=True)
+log_file = os.path.join(log_folder, f"{datetime.datetime.now().strftime('%Y-%m-%d')}.log")
+handler = RotatingFileHandler(log_file, maxBytes=1000000, backupCount=5)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.addHandler(handler)
+
+# Set up sys.excepthook to log unhandled exceptions
+def log_unhandled_exceptions(exc_type, exc_value, exc_traceback):
+    error_message = f"Uncaught exception: {exc_type.__name__}: {exc_value}"
+    logger.error(error_message)
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+sys.excepthook = log_unhandled_exceptions
+
+@app.middleware("http")
+async def catch_exceptions(request: Request, call_next):
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as e:
+        error_message = f"Unhandled exception: {e}"
+        logger.error(error_message)
+        raise
+
+def log_exceptions(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            error_message = f"Error in {func.__name__}: {str(e)}"
+            logger.error(error_message)
+            raise
+
+    return wrapper
 
 load_dotenv()
 
@@ -69,51 +112,11 @@ def save_pagespeed_data(result, url, userid, audit_id,collection):
     except Exception as e:
         print(f"Error saving data to MongoDB: {str(e)}")
 
-# Time-consuming task function
-# def send_requests_batch(task_id, batch, threadnum, userid, audit_id,collection):
-#     print(f"Starting Task {threadnum} for userid{userid}")
-#     print(f"Stack Count {len(global_stack)}")
-#     start_time = time.time()
-#     api_key = pop_from_global_stack()
-#     key=""
-#     isUsingStackKey=True
 
-#     if api_key:
-#         key=api_key
-#     else:
-#         key=API_KEY
-#         isUsingStackKey=False
-
-
-#     for url in batch:
-#         try:
-#             print(f"the value of key in thread {threadnum} is {key}. an stack left {len(global_stack)}")
-#             params = {
-#                 "url": url,
-#                 "key": key,
-#             }
-#             response = requests.get(API_ENDPOINT, params=params)
-#             if response.status_code == 200:
-#                 result = response.json()
-#                 print(
-#                     f"Task {threadnum} - URL: {url} - PageSpeed Score: {result['lighthouseResult']['categories']['performance']['score']} userid={userid}")
-#                 save_pagespeed_data(result, url, userid, audit_id, collection)
-#             else:
-#                 print(f"Task {threadnum} - URL: {url} - Request failed with status code: {response.status_code}")
-#         except Exception as e:
-#             print(f"Error saving data from iteration: {str(e)}")
-
-#     if isUsingStackKey:
-#         push_to_global_stack(key)
-
-#     print(f"Now Stack count added {len(global_stack)}")
-#     print(f"Finished Task {threadnum} userid={userid}")
-#     end_time = time.time()
-#     execution_time = end_time - start_time
-#     print(f"Thread {threadnum} execution time: {execution_time} seconds userid={userid}")
-
+@log_exceptions
 def send_requests_batch(task_id, batch, threadnum, userid, audit_id, collection):
     print(f"Starting Task {threadnum} for userid{userid}")
+    raise ValueError("mkkkk")
     print(f"Stack Count {len(global_stack)}")
     start_time = time.time()
     api_key = pop_from_global_stack()
@@ -156,9 +159,13 @@ def send_requests_batch(task_id, batch, threadnum, userid, audit_id, collection)
                         time.sleep(RETRY_DELAY)
                         retry_count += 1
                     else:
+                        error_message = f"Task {threadnum} - URL: {url} - Request failed with status code: {response.status_code}"
+                        logger.error(error_message)
                         print(f"Task {threadnum} - URL: {url} - Request failed with status code: {response.status_code}")
                         break  # Break out of the retry loop for non-retryable status codes
                 except Exception as e:
+                    error_message = f"Error saving data from iteration: {str(e)}"
+                    logger.error(error_message)
                     print(f"Error saving data from iteration: {str(e)}")
                     break  # Break out of the retry loop for other exceptions
 
@@ -171,6 +178,7 @@ def send_requests_batch(task_id, batch, threadnum, userid, audit_id, collection)
     execution_time = end_time - start_time
     print(f"Thread {threadnum} execution time: {execution_time} seconds userid={userid}")
 #Background task
+@log_exceptions
 def run_background_task(audit_id, task_id, urls, userid,collection):
     with ThreadPoolExecutor(max_workers=10) as executor:
         batch_size = 5
@@ -182,13 +190,16 @@ def run_background_task(audit_id, task_id, urls, userid,collection):
 
 @app.post("/task")
 async def run_task_in_background(item: Item):
-    user_id= str(uuid.uuid4())
-    item.userId=user_id
+    user_id = str(uuid.uuid4())
+    item.userId = user_id
     print(f"User Id={item.userId}")
     audit_id = str(uuid.uuid4())
     collection = get_mongodb_collection()
+    raise ValueError("ok")
+    
     # Create and start a background thread to run the task
-    threading.Thread(target=run_background_task, args=(audit_id, item.task_id, item.urls, item.userId,collection)).start()
-    return {"message": f"Task porcessing"}
+    threading.Thread(target=run_background_task, args=(audit_id, item.task_id, item.urls, item.userId, collection)).start()
+    return {"message": f"Task processing"}
+
 
 
